@@ -115,13 +115,21 @@
 
     <div class="iframe-container">
         <!-- Ganti dengan link Google Apps Script Anda -->
-        <!-- allow="geolocation" & "camera": WAJIB agar GPS & kamera selfie di dalam iframe tidak diblokir browser.
-             allow="fullscreen; screen-wake-lock" + allowfullscreen: WAJIB agar aplikasi di dalam iframe
-             boleh masuk mode layar penuh (fullscreen) dan menahan layar tetap menyala saat ujian. -->
+        <!-- Izin untuk aplikasi di dalam iframe.
+             PENTING: setiap izin HARUS diberi "*" (contoh: fullscreen *). Tanpa "*", izin hanya diberikan ke
+             alamat script.google.com saja, padahal Apps Script memuat aplikasi Anda di iframe bersarang lagi
+             (script.googleusercontent.com) sehingga izin tidak sampai ke aplikasi.
+             - camera *            : kamera untuk selfie & scan barcode
+             - geolocation *       : GPS presensi
+             - fullscreen *        : layar penuh (layar role Barcode)
+             - screen-wake-lock *  : layar tetap menyala
+             - autoplay *          : video kamera scanner langsung berjalan
+             - clipboard-write *   : salin teks dari aplikasi
+             Jangan menambahkan atribut sandbox pada iframe ini, karena bisa memblokir kamera & GPS. -->
         <iframe
             id="appFrame"
             src="https://script.google.com/macros/s/AKfycbxxTYFbggqWIiuRyfVFFqoJtNOPdc0_bWA9_BDAzpypFBCWolIWFcd3rblwCW_WPFN8PQ/exec"
-            allow="geolocation *; camera *; fullscreen; screen-wake-lock"
+            allow="camera *; geolocation *; fullscreen *; screen-wake-lock *; autoplay *; clipboard-write *"
             allowfullscreen></iframe>
     </div>
 
