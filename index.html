@@ -240,7 +240,7 @@
             function errMsg(e) {
                 var n = (e && e.name) || '';
                 if (n === 'NotAllowedError' || n === 'SecurityError') return 'Izin kamera ditolak/diblokir. Izinkan kamera untuk situs ini (ikon gembok di bilah alamat), lalu coba lagi.';
-                if (n === 'NotFoundError' || n === 'OverconstrainedError') return 'Kamera tidak ditemukan di perangkat ini. Gunakan tombol "foto barcode".';
+                if (n === 'NotFoundError' || n === 'OverconstrainedError') return 'Kamera tidak ditemukan di perangkat ini. Gunakan browser lain.';
                 if (n === 'NotReadableError') return 'Kamera sedang dipakai aplikasi lain. Tutup aplikasi kamera lalu coba lagi.';
                 return 'Kamera tidak bisa dibuka' + (n ? ' (' + n + ')' : '') + '.';
             }
@@ -269,7 +269,7 @@
                         });
                 };
                 if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-                    reply('SP_SCAN_ERROR', { message: 'Browser tidak mendukung kamera langsung. Gunakan tombol "foto barcode".' });
+                    reply('SP_SCAN_ERROR', { message: 'Browser tidak mendukung kamera langsung. Gunakan browser lain.' });
                     return;
                 }
                 cam().then(function (s) {
