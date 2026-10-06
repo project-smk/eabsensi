@@ -100,7 +100,15 @@
             #loader img { animation: none; }
             .bar-fill, #loader { transition: none; }
         }
+
+        /* ===== LAYAR SCAN KAMERA (dijalankan di halaman ini, di luar Apps Script) ===== */
+        #scanOverlay { position: fixed; inset: 0; z-index: 10000; display: none; flex-direction: column; align-items: center; justify-content: center; gap: 14px; padding: 16px; box-sizing: border-box; background: rgba(15,23,42,.92); }
+        #scanOverlay.show { display: flex; }
+        #scanOverlay video { width: min(92vw, 420px); aspect-ratio: 1 / 1; object-fit: cover; border-radius: 14px; background: #000; }
+        #scanOverlay p { margin: 0; color: #fff; font-size: 14px; font-weight: 600; text-align: center; }
+        #scanOverlay button { padding: 10px 24px; border: 0; border-radius: 10px; font-size: 14px; font-weight: 700; background: #fff; color: #0f172a; }
     </style>
+    <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
 </head>
 <body>
 
@@ -111,6 +119,13 @@
         <div class="bar"><div class="bar-fill" id="barFill"></div></div>
         <span id="percent">0%</span>
         <p id="statusText">Menyiapkan aplikasi...</p>
+    </div>
+
+    <!-- Layar scan kamera untuk barcode presensi -->
+    <div id="scanOverlay" role="dialog" aria-live="polite">
+        <p>Arahkan kamera ke barcode</p>
+        <video id="scanVideo" playsinline muted></video>
+        <button id="scanCancel" type="button">Batal</button>
     </div>
 
     <div class="iframe-container">
@@ -181,6 +196,98 @@
 
             // Pengaman: jika load tidak terpicu, tutup loader setelah 20 detik
             setTimeout(finish, 20000);
+        })();
+    </script>
+
+    <script>
+        /* ===== JEMBATAN KAMERA & LAYAR PENUH =====
+           Google Apps Script memblokir kamera di dalam aplikasinya. Karena itu aplikasi meminta halaman
+           pembungkus ini membuka kamera, membaca QR, lalu mengirim hasilnya kembali lewat postMessage. */
+        (function () {
+            var overlay = document.getElementById('scanOverlay');
+            var video = document.getElementById('scanVideo');
+            var stream = null, timer = 0, busy = false, target = null, detector = null;
+
+            function okOrigin(o) { return /^https:\/\/([a-z0-9-]+\.)*(googleusercontent\.com|google\.com)$/.test(o); }
+            function reply(type, extra) {
+                if (!target) return;
+                var m = { type: type }; for (var k in (extra || {})) m[k] = extra[k];
+                try { target.postMessage(m, '*'); } catch (e) {}
+            }
+            function stop() {
+                clearTimeout(timer); busy = false;
+                if (stream) { stream.getTracks().forEach(function (t) { t.stop(); }); stream = null; }
+                video.srcObject = null;
+                overlay.classList.remove('show');
+            }
+            function errMsg(e) {
+                var n = (e && e.name) || '';
+                if (n === 'NotAllowedError' || n === 'SecurityError') return 'Izin kamera ditolak/diblokir. Izinkan kamera untuk situs ini (ikon gembok di bilah alamat), lalu coba lagi.';
+                if (n === 'NotFoundError' || n === 'OverconstrainedError') return 'Kamera tidak ditemukan di perangkat ini. Gunakan tombol "foto barcode".';
+                if (n === 'NotReadableError') return 'Kamera sedang dipakai aplikasi lain. Tutup aplikasi kamera lalu coba lagi.';
+                return 'Kamera tidak bisa dibuka' + (n ? ' (' + n + ')' : '') + '.';
+            }
+            function decode(canvas, ctx, w, h) {
+                var viaJsQR = function () {
+                    if (typeof jsQR === 'undefined') return Promise.resolve(null);
+                    var r = jsQR(ctx.getImageData(0, 0, w, h).data, w, h, { inversionAttempts: 'attemptBoth' });
+                    return Promise.resolve(r ? r.data : null);
+                };
+                if ('BarcodeDetector' in window) {
+                    try {
+                        detector = detector || new BarcodeDetector({ formats: ['qr_code'] });
+                        return detector.detect(canvas).then(function (r) { return (r && r.length) ? r[0].rawValue : viaJsQR(); }, viaJsQR);
+                    } catch (e) {}
+                }
+                return viaJsQR();
+            }
+            function startScan(src) {
+                if (stream) return;
+                target = src;
+                var cam = function () {
+                    return navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' } }, audio: false })
+                        .catch(function (e) {
+                            return (e && (e.name === 'OverconstrainedError' || e.name === 'NotFoundError'))
+                                ? navigator.mediaDevices.getUserMedia({ video: true, audio: false }) : Promise.reject(e);
+                        });
+                };
+                if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                    reply('SP_SCAN_ERROR', { message: 'Browser tidak mendukung kamera langsung. Gunakan tombol "foto barcode".' });
+                    return;
+                }
+                cam().then(function (s) {
+                    stream = s; video.muted = true; video.srcObject = s;
+                    overlay.classList.add('show');
+                    var p = video.play(); if (p && p.catch) p.catch(function () {});
+                    var c = document.createElement('canvas'), ctx = c.getContext('2d', { willReadFrequently: true });
+                    (function loop() {
+                        if (!stream) return;
+                        if (video.videoWidth && !busy) {
+                            busy = true;
+                            var k = Math.min(1, 960 / video.videoWidth), w = Math.round(video.videoWidth * k), h = Math.round(video.videoHeight * k);
+                            c.width = w; c.height = h; ctx.drawImage(video, 0, 0, w, h);
+                            decode(c, ctx, w, h).then(function (text) {
+                                busy = false;
+                                if (text && stream) { stop(); reply('SP_SCAN_RESULT', { text: text }); }
+                            }, function () { busy = false; });
+                        }
+                        timer = setTimeout(loop, 150);
+                    })();
+                }).catch(function (e) { reply('SP_SCAN_ERROR', { message: errMsg(e) }); });
+            }
+
+            document.getElementById('scanCancel').addEventListener('click', function () { stop(); reply('SP_SCAN_CANCEL'); });
+
+            window.addEventListener('message', function (e) {
+                if (!okOrigin(e.origin) || !e.data || typeof e.data !== 'object') return;
+                if (e.data.type === 'SP_SCAN_REQUEST') {
+                    try { e.source.postMessage({ type: 'SP_SCAN_ACK' }, '*'); } catch (x) {}
+                    startScan(e.source);
+                } else if (e.data.type === 'SP_FULLSCREEN_REQUEST') {
+                    var el = document.documentElement, rq = el.requestFullscreen || el.webkitRequestFullscreen;
+                    if (rq && !document.fullscreenElement) { try { var p = rq.call(el); if (p && p.catch) p.catch(function () {}); } catch (x) {} }
+                }
+            });
         })();
     </script>
 </body>
